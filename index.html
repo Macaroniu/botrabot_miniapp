@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Job Search Mini App</title>
+    <title>BotRabot Job Search</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -29,7 +29,7 @@
 <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // Lucide icons
+    // Lucide icons (inline SVG components)
     const Search = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>;
     const User = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
     const FileText = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>;
@@ -40,10 +40,10 @@
     const Calendar = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>;
     const AlertCircle = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
 
-    // API Configuration
-    const API_BASE_URL = 'https://mute-fae-macaroniu-ef8afb3f.koyeb.app/api';
+    // IMPORTANT: Fixed API URL - removed /api prefix
+    const API_BASE_URL = 'https://mute-fae-macaroniu-ef8afb3f.koyeb.app';
 
-    // API Client
+    // API Client with better error handling
     class ApiClient {
         constructor(baseUrl, initData) {
             this.baseUrl = baseUrl;
@@ -59,19 +59,25 @@
             };
 
             try {
-                console.log('Making request to:', url);
+                console.log('API Request:', url);
+                console.log('Headers:', { ...headers, Authorization: 'REDACTED' });
+
                 const response = await fetch(url, {
                     ...options,
                     headers
                 });
 
+                console.log('Response status:', response.status);
+
                 if (!response.ok) {
                     const errorText = await response.text();
-                    console.error('API Error:', response.status, errorText);
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    console.error('API Error Response:', errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
 
-                return await response.json();
+                const data = await response.json();
+                console.log('API Response:', data);
+                return data;
             } catch (error) {
                 console.error('API request failed:', error);
                 throw error;
@@ -98,31 +104,10 @@
         }
     }
 
-    const plans = {
-        "Базовый": {
-            name: "Базовый",
-            price: "Бесплатно",
-            features: ["До 5 откликов в день", "Базовый поиск", "1 резюме"],
-            color: "from-blue-500 to-blue-600"
-        },
-        "Плюс": {
-            name: "Плюс",
-            price: "499₽/мес",
-            features: ["До 20 откликов в день", "Расширенный поиск", "3 резюме", "Приоритет в показе"],
-            color: "from-purple-500 to-purple-600"
-        },
-        "Про": {
-            name: "Про",
-            price: "999₽/мес",
-            features: ["Безлимитные отклики", "AI-рекомендации", "Неограниченно резюме", "VIP поддержка"],
-            color: "from-amber-500 to-amber-600"
-        }
-    };
-
     const MenuCard = ({ icon, title, subtitle, gradient, onClick }) => (
         <button
             onClick={onClick}
-            className={`bg-gradient-to-br ${gradient} rounded-2xl p-5 text-white shadow-lg hover:shadow-xl transition transform active:scale-95 text-left`}
+            className={`bg-gradient-to-br ${gradient} rounded-2xl p-5 text-white shadow-lg hover:shadow-xl transition transform active:scale-95 text-left w-full`}
         >
             <div className="mb-3">{icon}</div>
             <h3 className="font-bold text-lg mb-1">{title}</h3>
@@ -131,12 +116,12 @@
     );
 
     const ScreenHeader = ({ title, onBack }) => (
-        <div className="flex items-center gap-3 mb-2">
+        <div className="flex items-center gap-3 mb-4">
             <button
                 onClick={onBack}
                 className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm"
             >
-                <ChevronRight className="rotate-180" />
+                <ChevronRight style={{ transform: 'rotate(180deg)' }} />
             </button>
             <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
         </div>
@@ -156,6 +141,7 @@
         const [screen, setScreen] = useState('main');
         const [user, setUser] = useState(null);
         const [resumes, setResumes] = useState([]);
+        const [plans, setPlans] = useState({});
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [apiClient, setApiClient] = useState(null);
@@ -166,31 +152,37 @@
 
         const initializeApp = async () => {
             try {
-                if (window.Telegram?.WebApp) {
-                    const tg = window.Telegram.WebApp;
-                    tg.ready();
-                    tg.expand();
-                    tg.setHeaderColor('#1e293b');
+                console.log('Initializing app...');
 
-                    const initData = tg.initData;
-                    console.log('Telegram initData:', initData ? 'Present' : 'Missing');
-
-                    if (!initData) {
-                        setError('Приложение должно быть открыто через Telegram');
-                        setLoading(false);
-                        return;
-                    }
-
-                    const client = new ApiClient(API_BASE_URL, initData);
-                    setApiClient(client);
-
-                    await loadUserData(client);
-                } else {
-                    setError('Приложение должно быть открыто через Telegram');
+                // Check if Telegram WebApp is available
+                if (!window.Telegram?.WebApp) {
+                    throw new Error('Telegram WebApp not available');
                 }
+
+                const tg = window.Telegram.WebApp;
+                tg.ready();
+                tg.expand();
+                tg.setHeaderColor('#1e293b');
+
+                console.log('Telegram WebApp initialized');
+                console.log('initData available:', !!tg.initData);
+
+                const initData = tg.initData;
+
+                if (!initData) {
+                    setError('Приложение должно быть открыто через Telegram');
+                    setLoading(false);
+                    return;
+                }
+
+                const client = new ApiClient(API_BASE_URL, initData);
+                setApiClient(client);
+
+                await loadUserData(client);
+
             } catch (err) {
                 console.error('Initialization error:', err);
-                setError('Ошибка инициализации приложения');
+                setError(`Ошибка инициализации: ${err.message}`);
             } finally {
                 setLoading(false);
             }
@@ -198,16 +190,22 @@
 
         const loadUserData = async (client) => {
             try {
-                const [userData, resumesData] = await Promise.all([
+                console.log('Loading user data...');
+
+                const [userData, resumesData, plansData] = await Promise.all([
                     client.getUserProfile(),
-                    client.getUserResumes()
+                    client.getUserResumes(),
+                    client.getPlans()
                 ]);
 
+                console.log('User data loaded:', userData);
                 setUser(userData);
                 setResumes(resumesData);
+                setPlans(plansData);
+
             } catch (err) {
                 console.error('Error loading user data:', err);
-                setError('Не удалось загрузить данные пользователя. Возможно, вы не зарегистрированы. Напишите /start боту.');
+                setError('Не удалось загрузить данные. Возможно, вы не зарегистрированы. Напишите /start боту.');
             }
         };
 
@@ -320,7 +318,7 @@
                 <div className="space-y-3">
                     {resumes.length === 0 ? (
                         <div className="bg-white rounded-2xl p-12 text-center border border-slate-200">
-                            <FileText className="w-16 h-16 mx-auto text-slate-300 mb-4" />
+                            <FileText style={{ width: '64px', height: '64px', margin: '0 auto 16px', color: '#cbd5e1' }} />
                             <p className="text-slate-500">У вас пока нет резюме</p>
                             <p className="text-slate-400 text-sm mt-2">Загрузите своё первое резюме через бота</p>
                         </div>
@@ -335,7 +333,7 @@
                                         <div className="flex-1">
                                             <h4 className="font-semibold text-slate-800 mb-1">{resume.name}</h4>
                                             <div className="flex items-center gap-1 text-xs text-slate-500">
-                                                <Calendar />
+                                                <Calendar style={{ width: '14px', height: '14px' }} />
                                                 {new Date(resume.created_at).toLocaleDateString('ru-RU')}
                                             </div>
                                         </div>
@@ -432,7 +430,7 @@
                 <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-lg">
                         <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <AlertCircle className="text-red-600" />
+                            <AlertCircle style={{ color: '#dc2626' }} />
                         </div>
                         <h3 className="text-xl font-bold text-slate-800 mb-2">Ошибка</h3>
                         <p className="text-slate-600 mb-4">{error}</p>
@@ -452,7 +450,7 @@
                 <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-lg">
                         <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <User className="text-amber-600" />
+                            <User style={{ color: '#d97706' }} />
                         </div>
                         <h3 className="text-xl font-bold text-slate-800 mb-2">Пользователь не найден</h3>
                         <p className="text-slate-600 mb-4">Пожалуйста, сначала зарегистрируйтесь через бота</p>
