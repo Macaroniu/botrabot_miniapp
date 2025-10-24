@@ -1,166 +1,457 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no" />
-  <title>BotRabot Job Search</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BotRabot Job Search</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-  <!-- TG SDK + Tailwind -->
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow-x: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
 
-  <style>
-    :root {
-      /* актуальная высота вьюпорта TG; обновляется из JS */
-      --tg-vh: 100dvh;
-      --safe-bottom: env(safe-area-inset-bottom, 0px);
-      --safe-top: env(safe-area-inset-top, 0px);
-    }
+        body {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
 
-    html, body {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-      background: #f8fafc;
-      overflow-x: hidden;
-    }
-
-    /* корневой контейнер растягиваем на реальную высоту webview */
-    #root {
-      min-height: var(--tg-vh);
-      padding-bottom: var(--safe-bottom);
-      box-sizing: border-box;
-    }
-  </style>
+        #root {
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+    </style>
 </head>
 <body>
 <div id="root"></div>
 
 <script type="module">
-  import React, { useState, useEffect } from 'https://esm.sh/react@18.2.0';
-  import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
+    import React, { useState, useEffect } from 'https://esm.sh/react@18.2.0';
+    import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
 
-  const { createElement: h } = React;
+    const { createElement: h } = React;
 
-  /* ---------------- Icons ---------------- */
-  const ChevronRight = () => h('svg',{xmlns:"http://www.w3.org/2000/svg",width:24,height:24,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:2,strokeLinecap:"round",strokeLinejoin:"round"},h('polyline',{points:"9 18 15 12 9 6"}));
-
-  /* ---------------- API ---------------- */
-  const API_BASE_URL = 'https://mute-fae-macaroniu-ef8afb3f.koyeb.app';
-
-  class ApiClient {
-    constructor(baseUrl, initData) {
-      this.baseUrl = baseUrl;
-      this.initData = initData || ''; // вне TG — пусто
-    }
-    async request(endpoint, options = {}) {
-      const url = `${this.baseUrl}${endpoint}`;
-      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-      if (this.initData) headers['Authorization'] = this.initData;
-
-      const resp = await fetch(url, { ...options, headers, mode: 'cors', credentials: 'omit' });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
-      return resp.json();
-    }
-    getUserProfile() { return this.request('/user/profile'); }
-    getUserResumes() { return this.request('/user/resumes'); }
-    getPlans() { return this.request('/plans'); }
-    updatePlan(planName) { return this.request('/user/update-plan', { method:'POST', body: JSON.stringify({ plan_name: planName }) }); }
-  }
-
-  /* --------- TG viewport helpers (full-screen) ---------- */
-  function applyViewportHeight(vh) {
-    // vh уже в CSS-пикселях
-    document.documentElement.style.setProperty('--tg-vh', vh ? `${vh}px` : `${window.innerHeight}px`);
-  }
-
-  function initTelegramViewport() {
-    const tg = window.Telegram?.WebApp;
-    if (!tg) {
-      // не в TG — используем dvh
-      applyViewportHeight(window.innerHeight);
-      window.addEventListener('resize', () => applyViewportHeight(window.innerHeight));
-      return { tg: null, initData: '' };
-    }
-
-    try {
-      tg.ready?.();
-      tg.expand?.();               // развернуть на максимум
-      tg.setBackgroundColor?.('#F8FAFC');
-      tg.setHeaderColor?.('#1e293b');
-    } catch(_) {}
-
-    applyViewportHeight(tg.viewportHeight || window.innerHeight);
-    tg.onEvent?.('viewportChanged', () => {
-      applyViewportHeight(tg.viewportHeight || window.innerHeight);
-    });
-
-    return { tg, initData: tg.initData || '' };
-  }
-
-  /* ---------------- App ---------------- */
-  function JobSearchApp() {
-    const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-
-    useEffect(() => {
-      const { initData } = initTelegramViewport();
-      const client = new ApiClient(API_BASE_URL, initData);
-
-      (async () => {
-        try {
-          // Пытаемся подтянуть персональные данные — получится только в TG
-          const [u, resumes] = await Promise.all([
-            client.getUserProfile(),
-            client.getUserResumes(),
-          ]);
-          setUser({
-            name: u?.name,
-            plan: u?.plan,
-            resumeCount: Array.isArray(resumes) ? resumes.length : u?.resumeCount
-          });
-        } catch {
-          // Вне TG или без авторизации — это норм, просто без персонализации
-          setUser(null);
-          setError(null);
-        } finally { setLoading(false); }
-      })();
-    }, []);
-
-    if (loading) {
-      return h('div', { className: 'min-h-screen flex items-center justify-center' },
-        h('div', { className: 'text-center' },
-          h('div', { className: 'w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4' }),
-          h('p', { className: 'text-slate-600' }, 'Загрузка...')
-        )
-      );
-    }
-
-    return h('div', { className: 'min-h-screen bg-gradient-to-br from-slate-50 to-slate-100' },
-      h('div', { className: 'max-w-2xl mx-auto p-4 pb-8' },
-        h('div', { className: 'bg-white rounded-2xl p-6 shadow-lg' },
-          h('h2', { className: 'text-2xl font-bold mb-4' }, `Привет${user?.name ? `, ${user.name}` : ''}! 👋`),
-          user?.plan
-            ? h('p', { className: 'text-slate-600' }, `План: ${user.plan}`)
-            : h('p', { className: 'text-slate-600' }, 'Открой через Telegram, чтобы увидеть профиль и резюме'),
-          user?.resumeCount != null && h('p', { className: 'text-slate-600' }, `Резюме: ${user.resumeCount}`),
-
-          h('div', { className: 'mt-6 flex items-center gap-2 text-indigo-600' },
-            h('span', null, 'Перейти к поиску вакансий'),
-            h(ChevronRight)
-          )
-        )
-      )
+    const Search = () => h('svg', { xmlns: "http://www.w3.org/2000/svg", width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+        h('circle', { cx: 11, cy: 11, r: 8 }),
+        h('path', { d: "m21 21-4.35-4.35" })
     );
-  }
 
-  const root = ReactDOM.createRoot(document.getElementById('root'));
-  root.render(h(JobSearchApp));
+    const User = () => h('svg', { xmlns: "http://www.w3.org/2000/svg", width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+        h('path', { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" }),
+        h('circle', { cx: 12, cy: 7, r: 4 })
+    );
+
+    const FileText = () => h('svg', { xmlns: "http://www.w3.org/2000/svg", width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+        h('path', { d: "M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" }),
+        h('polyline', { points: "14 2 14 8 20 8" }),
+        h('line', { x1: 16, y1: 13, x2: 8, y2: 13 }),
+        h('line', { x1: 16, y1: 17, x2: 8, y2: 17 }),
+        h('line', { x1: 10, y1: 9, x2: 8, y2: 9 })
+    );
+
+    const Crown = () => h('svg', { xmlns: "http://www.w3.org/2000/svg", width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+        h('path', { d: "m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7z" }),
+        h('path', { d: "M3 20h18" })
+    );
+
+    const ChevronRight = () => h('svg', { xmlns: "http://www.w3.org/2000/svg", width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+        h('polyline', { points: "9 18 15 12 9 6" })
+    );
+
+    const Upload = () => h('svg', { xmlns: "http://www.w3.org/2000/svg", width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+        h('path', { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }),
+        h('polyline', { points: "17 8 12 3 7 8" }),
+        h('line', { x1: 12, y1: 3, x2: 12, y2: 15 })
+    );
+
+    const Mail = () => h('svg', { xmlns: "http://www.w3.org/2000/svg", width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+        h('rect', { x: 2, y: 4, width: 20, height: 16, rx: 2 }),
+        h('path', { d: "m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" })
+    );
+
+    const Calendar = () => h('svg', { xmlns: "http://www.w3.org/2000/svg", width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+        h('rect', { x: 3, y: 4, width: 18, height: 18, rx: 2, ry: 2 }),
+        h('line', { x1: 16, y1: 2, x2: 16, y2: 6 }),
+        h('line', { x1: 8, y1: 2, x2: 8, y2: 6 }),
+        h('line', { x1: 3, y1: 10, x2: 21, y2: 10 })
+    );
+
+    const API_BASE_URL = 'https://mute-fae-macaroniu-ef8afb3f.koyeb.app';
+
+    class ApiClient {
+        constructor(baseUrl, initData) {
+            this.baseUrl = baseUrl;
+            this.initData = initData;
+        }
+
+        async request(endpoint, options = {}) {
+            const url = `${this.baseUrl}${endpoint}`;
+            const headers = {
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+            if (this.initData) headers['Authorization'] = this.initData;
+
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    headers,
+                    mode: 'cors'
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                return await response.json();
+            } catch (error) {
+                console.error('API request failed:', error);
+                throw error;
+            }
+        }
+
+        getUserProfile() {
+            return this.request('/user/profile');
+        }
+
+        getUserResumes() {
+            return this.request('/user/resumes');
+        }
+
+        getPlans() {
+            return this.request('/plans');
+        }
+
+        updatePlan(planName) {
+            return this.request('/user/update-plan', {
+                method: 'POST',
+                body: JSON.stringify({ plan_name: planName })
+            });
+        }
+    }
+
+    const plans = {
+        "Базовый": {
+            name: "Базовый",
+            price: "Бесплатно",
+            features: ["До 5 откликов в день", "Базовый поиск", "1 резюме"],
+            color: "from-blue-500 to-blue-600"
+        },
+        "Плюс": {
+            name: "Плюс",
+            price: "499₽/мес",
+            features: ["До 20 откликов в день", "Расширенный поиск", "3 резюме", "Приоритет в показе"],
+            color: "from-purple-500 to-purple-600"
+        },
+        "Про": {
+            name: "Про",
+            price: "999₽/мес",
+            features: ["Безлимитные отклики", "AI-рекомендации", "Неограниченно резюме", "VIP поддержка"],
+            color: "from-amber-500 to-amber-600"
+        }
+    };
+
+    function JobSearchApp() {
+        const [screen, setScreen] = useState('main');
+        const [user, setUser] = useState(null);
+        const [resumes, setResumes] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const [apiClient, setApiClient] = useState(null);
+
+        useEffect(() => {
+            initializeApp();
+        }, []);
+
+        const initializeApp = async () => {
+            try {
+                const tg = window.Telegram?.WebApp;
+
+                if (tg) {
+                    tg.ready();
+                    tg.expand();
+                    tg.setHeaderColor('#1e293b');
+                    tg.setBackgroundColor('#f8fafc');
+
+                    // Включаем вертикальные свайпы
+                    tg.enableVerticalSwipes();
+                }
+
+                const initData = tg?.initData || '';
+                const client = new ApiClient(API_BASE_URL, initData);
+                setApiClient(client);
+
+                await loadUserData(client);
+            } catch (err) {
+                console.error('Initialization error:', err);
+                setError(`Ошибка инициализации: ${err.message}`);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const loadUserData = async (client) => {
+            try {
+                const [userData, resumesData] = await Promise.all([
+                    client.getUserProfile(),
+                    client.getUserResumes()
+                ]);
+
+                setUser(userData);
+                setResumes(resumesData);
+            } catch (err) {
+                console.error('Error loading user data:', err);
+                setUser(null);
+                setError(null);
+            }
+        };
+
+        const MenuCard = ({ icon, title, subtitle, gradient, onClick }) =>
+            h('button', {
+                onClick,
+                className: `bg-gradient-to-br ${gradient} rounded-2xl p-5 text-white shadow-lg active:scale-95 transition text-left`
+            },
+                h('div', { className: 'mb-3' }, icon),
+                h('h3', { className: 'font-bold text-lg mb-1' }, title),
+                h('p', { className: 'text-sm opacity-90' }, subtitle)
+            );
+
+        const ScreenHeader = ({ title, onBack }) =>
+            h('div', { className: 'flex items-center gap-3 mb-4' },
+                h('button', {
+                    onClick: onBack,
+                    className: 'w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm active:scale-95 transition'
+                },
+                    h(ChevronRight, { className: 'w-5 h-5 rotate-180 text-slate-600' })
+                ),
+                h('h1', { className: 'text-2xl font-bold text-slate-800' }, title)
+            );
+
+        const InfoRow = ({ icon, label, value }) =>
+            h('div', { className: 'flex items-center gap-3 py-3 border-b border-slate-100 last:border-0' },
+                h('div', { className: 'text-slate-400' }, icon),
+                h('div', { className: 'flex-1' },
+                    h('div', { className: 'text-xs text-slate-500' }, label),
+                    h('div', { className: 'text-slate-800 font-medium' }, value)
+                )
+            );
+
+        if (loading) {
+            return h('div', { className: 'h-full bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center' },
+                h('div', { className: 'text-center' },
+                    h('div', { className: 'w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4' }),
+                    h('p', { className: 'text-slate-600' }, 'Загрузка...')
+                )
+            );
+        }
+
+        const MainScreen = () =>
+            h('div', { className: 'space-y-4' },
+                h('div', { className: 'bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl p-6 text-white shadow-lg' },
+                    h('div', { className: 'flex items-center justify-between mb-4' },
+                        h('div', null,
+                            h('h2', { className: 'text-2xl font-bold mb-1' },
+                                `Привет${user?.name ? `, ${user.name.split(' ')[0]}` : ''}! 👋`
+                            ),
+                            h('p', { className: 'text-indigo-100 text-sm' }, 'Найдём работу мечты вместе')
+                        ),
+                        h('div', { className: 'bg-white/20 backdrop-blur-sm rounded-full p-3' },
+                            h(User, { className: 'w-8 h-8' })
+                        )
+                    ),
+                    h('div', { className: 'flex gap-4 mt-4' },
+                        h('div', { className: 'bg-white/20 backdrop-blur-sm rounded-lg px-4 py-2 flex-1' },
+                            h('div', { className: 'text-xs text-indigo-100' }, 'Тариф'),
+                            h('div', { className: 'font-semibold' }, user?.plan || 'Базовый')
+                        ),
+                        h('div', { className: 'bg-white/20 backdrop-blur-sm rounded-lg px-4 py-2 flex-1' },
+                            h('div', { className: 'text-xs text-indigo-100' }, 'Резюме'),
+                            h('div', { className: 'font-semibold' }, user?.resumeCount || 0)
+                        )
+                    )
+                ),
+                h('div', { className: 'grid grid-cols-2 gap-3' },
+                    h(MenuCard, {
+                        icon: h(Search, { className: 'w-6 h-6' }),
+                        title: 'Найти вакансии',
+                        subtitle: 'Поиск работы',
+                        gradient: 'from-emerald-500 to-teal-500',
+                        onClick: () => setScreen('jobs')
+                    }),
+                    h(MenuCard, {
+                        icon: h(FileText, { className: 'w-6 h-6' }),
+                        title: 'Мои резюме',
+                        subtitle: `${resumes.length} шт.`,
+                        gradient: 'from-blue-500 to-cyan-500',
+                        onClick: () => setScreen('resumes')
+                    }),
+                    h(MenuCard, {
+                        icon: h(User, { className: 'w-6 h-6' }),
+                        title: 'Профиль',
+                        subtitle: 'Мои данные',
+                        gradient: 'from-violet-500 to-purple-500',
+                        onClick: () => setScreen('profile')
+                    }),
+                    h(MenuCard, {
+                        icon: h(Crown, { className: 'w-6 h-6' }),
+                        title: 'Подписка',
+                        subtitle: 'Улучшить план',
+                        gradient: 'from-amber-500 to-orange-500',
+                        onClick: () => setScreen('subscription')
+                    })
+                )
+            );
+
+        const ProfileScreen = () =>
+            h('div', { className: 'space-y-4' },
+                h(ScreenHeader, { title: 'Профиль', onBack: () => setScreen('main') }),
+                h('div', { className: 'bg-white rounded-2xl p-6 shadow-sm border border-slate-200' },
+                    h('div', { className: 'flex items-center gap-4 mb-6' },
+                        h('div', { className: 'w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center text-white text-2xl font-bold shadow-lg' },
+                            user?.name ? user.name.split(' ').map(n => n[0]).join('') : 'U'
+                        ),
+                        h('div', null,
+                            h('h3', { className: 'text-xl font-bold text-slate-800' }, user?.name || 'Пользователь'),
+                            h('p', { className: 'text-slate-500 text-sm' }, `ID: ${user?.tg_user_id || '—'}`)
+                        )
+                    ),
+                    h('div', { className: 'space-y-3' },
+                        h(InfoRow, { icon: h(Mail, { className: 'w-5 h-5' }), label: 'Контакт', value: user?.contact || '—' }),
+                        h(InfoRow, { icon: h(Crown, { className: 'w-5 h-5' }), label: 'Тарифный план', value: user?.plan || 'Базовый' }),
+                        h(InfoRow, { icon: h(FileText, { className: 'w-5 h-5' }), label: 'Резюме', value: `${resumes.length} шт.` })
+                    )
+                ),
+                h('button', { className: 'w-full bg-slate-100 text-slate-700 py-3 rounded-xl font-medium active:bg-slate-200 transition' },
+                    'Редактировать профиль'
+                )
+            );
+
+        const ResumesScreen = () =>
+            h('div', { className: 'space-y-4' },
+                h(ScreenHeader, { title: 'Мои резюме', onBack: () => setScreen('main') }),
+                h('button', { className: 'w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-4 rounded-xl font-medium shadow-lg flex items-center justify-center gap-2' },
+                    h(Upload, { className: 'w-5 h-5' }),
+                    'Загрузить новое резюме'
+                ),
+                h('div', { className: 'space-y-3' },
+                    resumes.length === 0 ?
+                        h('div', { className: 'bg-white rounded-2xl p-12 text-center border border-slate-200' },
+                            h(FileText, { className: 'w-16 h-16 mx-auto text-slate-300 mb-4' }),
+                            h('p', { className: 'text-slate-500' }, 'У вас пока нет резюме'),
+                            h('p', { className: 'text-slate-400 text-sm mt-2' }, 'Загрузите своё первое резюме')
+                        ) :
+                        resumes.map(resume =>
+                            h('div', { key: resume.id, className: 'bg-white rounded-xl p-4 shadow-sm border border-slate-200 active:border-indigo-300 transition' },
+                                h('div', { className: 'flex items-start justify-between' },
+                                    h('div', { className: 'flex gap-3 flex-1' },
+                                        h('div', { className: 'w-12 h-12 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-lg flex items-center justify-center' },
+                                            h(FileText, { className: 'w-6 h-6 text-indigo-600' })
+                                        ),
+                                        h('div', { className: 'flex-1' },
+                                            h('h4', { className: 'font-semibold text-slate-800 mb-1' }, resume.name),
+                                            h('div', { className: 'flex items-center gap-1 text-xs text-slate-500' },
+                                                h(Calendar, { className: 'w-3 h-3' }),
+                                                new Date(resume.created_at).toLocaleDateString('ru-RU')
+                                            )
+                                        )
+                                    ),
+                                    h(ChevronRight, { className: 'w-5 h-5 text-slate-400' })
+                                )
+                            )
+                        )
+                )
+            );
+
+        const SubscriptionScreen = () =>
+            h('div', { className: 'space-y-4' },
+                h(ScreenHeader, { title: 'Подписка', onBack: () => setScreen('main') }),
+                h('div', { className: 'bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-200' },
+                    h('div', { className: 'flex items-center gap-2 text-amber-800 mb-1' },
+                        h(Crown, { className: 'w-5 h-5' }),
+                        h('span', { className: 'font-semibold' }, `Текущий план: ${user?.plan || 'Базовый'}`)
+                    ),
+                    h('p', { className: 'text-sm text-amber-700' }, 'Улучшите план для большего количества откликов')
+                ),
+                h('div', { className: 'space-y-3' },
+                    Object.values(plans).map(plan =>
+                        h('div', {
+                            key: plan.name,
+                            className: `bg-white rounded-2xl p-5 shadow-sm border-2 ${user?.plan === plan.name ? 'border-indigo-500' : 'border-slate-200'} transition`
+                        },
+                            h('div', { className: 'flex items-start justify-between mb-4' },
+                                h('div', null,
+                                    h('h3', { className: 'text-xl font-bold text-slate-800 mb-1' }, plan.name),
+                                    h('p', { className: 'text-2xl font-bold text-indigo-600' }, plan.price)
+                                ),
+                                user?.plan === plan.name &&
+                                h('span', { className: 'bg-indigo-100 text-indigo-700 text-xs px-3 py-1 rounded-full font-medium' },
+                                    'Активен'
+                                )
+                            ),
+                            h('ul', { className: 'space-y-2 mb-4' },
+                                plan.features.map((feature, idx) =>
+                                    h('li', { key: idx, className: 'flex items-start gap-2 text-sm text-slate-600' },
+                                        h('span', { className: 'text-emerald-500 mt-0.5' }, '✓'),
+                                        h('span', null, feature)
+                                    )
+                                )
+                            ),
+                            user?.plan !== plan.name &&
+                            h('button', { className: `w-full bg-gradient-to-r ${plan.color} text-white py-2 rounded-lg font-medium active:shadow-lg transition` },
+                                'Выбрать план'
+                            )
+                        )
+                    )
+                )
+            );
+
+        const JobsScreen = () =>
+            h('div', { className: 'space-y-4' },
+                h(ScreenHeader, { title: 'Поиск вакансий', onBack: () => setScreen('main') }),
+                h('div', { className: 'bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl p-12 text-center border border-indigo-200' },
+                    h('div', { className: 'w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg' },
+                        h(Search, { className: 'w-10 h-10 text-white' })
+                    ),
+                    h('h3', { className: 'text-xl font-bold text-slate-800 mb-2' }, 'Скоро появится'),
+                    h('p', { className: 'text-slate-600' }, 'Функционал поиска вакансий находится в разработке'),
+                    h('div', { className: 'mt-6 flex gap-2 justify-center' },
+                        h('div', { className: 'w-2 h-2 bg-indigo-500 rounded-full animate-bounce', style: { animationDelay: '0ms' } }),
+                        h('div', { className: 'w-2 h-2 bg-purple-500 rounded-full animate-bounce', style: { animationDelay: '150ms' } }),
+                        h('div', { className: 'w-2 h-2 bg-pink-500 rounded-full animate-bounce', style: { animationDelay: '300ms' } })
+                    )
+                )
+            );
+
+        return h('div', { className: 'h-full bg-gradient-to-br from-slate-50 to-slate-100 overflow-y-auto' },
+            h('div', { className: 'max-w-2xl mx-auto p-4 pb-8' },
+                screen === 'main' && h(MainScreen),
+                screen === 'profile' && h(ProfileScreen),
+                screen === 'resumes' && h(ResumesScreen),
+                screen === 'subscription' && h(SubscriptionScreen),
+                screen === 'jobs' && h(JobsScreen)
+            )
+        );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(h(JobSearchApp));
 </script>
 </body>
 </html>
